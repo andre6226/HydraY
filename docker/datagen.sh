@@ -5,6 +5,8 @@
 #   --out /data/m<8 hex>-v<version>-n<nodes>
 #                          the hash of the host's /etc/machine-id, mounted at
 #                          /host/machine-id (one stable prefix per machine),
+#                          else of the hostname (one per container instance,
+#                          e.g. a managed deployment, which mounts none); plus
 #                          the engine version and the nodes per move: a new
 #                          version or another --nodes, new names
 #   --nodes 8000           the default of ./chess datagen, passed explicitly so
@@ -124,6 +126,15 @@ case $nodes in
     ''|0*|*[!0-9]*) echo "datagen.sh: --nodes $nodes: a whole number of nodes" >&2; exit 1 ;;
 esac
 if [ -z "$out" ]; then
+    # No --out and no host machine-id (a managed deployment mounts none): the
+    # hostname stands in, unique per container instance; the image's own
+    # machine-id would be shared by every container of the image.
+    if [ -z "$machine_hash" ]; then
+        h=$(hostname 2>/dev/null || true)
+        if [ -n "$h" ]; then
+            machine_hash=m$(printf '%s' "$h" | tr -d '[:space:]' | sha256sum | cut -c1-8)
+        fi
+    fi
     [ -n "$machine_hash" ] || {
         echo "datagen.sh: mount the host's /etc/machine-id at /host/machine-id, or give --out" >&2
         exit 1

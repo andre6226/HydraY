@@ -258,7 +258,9 @@ docker stop -t 600 datagen
 docker run --rm -v "$PWD/data:/data" hydray-datagen dump /data/<prefix>.s0000.bin 5
 ```
 
-Without the machine-id mount the container needs `--out`.
+Without the machine-id mount the prefix comes from the hash of the
+container's hostname (one per instance, so two instances never share it);
+`--out=/data/NAME` overrides it.
 
 The uploader also runs without Docker:
 `nnue/tools/hf_upload.py --data data --repo ThomasGhione/hydray --once` (needs
