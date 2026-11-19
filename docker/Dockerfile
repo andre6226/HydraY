@@ -49,3 +49,9 @@ COPY docker/datagen.sh engine/syzygy/fetch_syzygy.py engine/syzygy/syzygy-3-4-5.
 WORKDIR /hydray
 VOLUME ["/data"]
 ENTRYPOINT ["/hydray/datagen.sh"]
+# Used when the container starts with no arguments (a managed deployment execs
+# the entrypoint bare): seal a small shard often and upload it to the Hub, as
+# in compose.yaml's command:. Compose `command:` and `docker run` arguments
+# replace this CMD; a local run without HF_TOKEN passes its own (no --hf-repo),
+# since the upload is checked before the datagen starts.
+CMD ["--shard=250000", "--seal-on-exit", "--hf-repo=ThomasGhione/hydray", "--delete-after-upload"]

@@ -262,6 +262,14 @@ Without the machine-id mount the prefix comes from the hash of the
 container's hostname (one per instance, so two instances never share it);
 `--out=/data/NAME` overrides it.
 
+The image also carries a `CMD`, used when the container starts with no
+arguments (a managed deployment execs the entrypoint bare):
+`--shard=250000 --seal-on-exit --hf-repo=ThomasGhione/hydray
+--delete-after-upload` — small shards, sealed and uploaded to the Hub as they
+come. Compose `command:` and `docker run` arguments replace it; a local run
+without `HF_TOKEN` passes its own (no `--hf-repo`), since the upload is checked
+before the datagen starts.
+
 The uploader also runs without Docker:
 `nnue/tools/hf_upload.py --data data --repo ThomasGhione/hydray --once` (needs
 `pip install huggingface_hub`; `--help` for the rest). Outside Docker
