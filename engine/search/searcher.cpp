@@ -701,7 +701,10 @@ int32_t searchPosition(Board& b, SearchRuntime& runtime, int depth, int32_t alph
         if constexpr (kSearchStats) ++gSearchStats.nmpTries;
         const int reduction = NMP_BASE_R + depth / 3 + std::clamp<int32_t>((staticEval - beta) / NMP_EVAL_DIV, 0, NMP_EVAL_MAX);
         Board::MoveState nullState;
-        b.doNullMove(nullState);
+        const Board::HashPrefetch nullPrefetch{
+            tt.rawTableBase(), tt.bucketByteMask(), evalCache.rawBase(), EvalCache::BYTE_MASK
+        };
+        b.doNullMove(nullState, nullPrefetch);
         const int32_t nullScore = -searchPosition<false>(b, runtime, depth - reduction, -beta, -alpha, ply + 1,
                                                   allowHeuristicUpdates, nullptr, false);
         b.undoNullMove(nullState);
@@ -723,13 +726,16 @@ int32_t searchPosition(Board& b, SearchRuntime& runtime, int depth, int32_t alph
     // (behind a qsearch filter above depth 4) makes a fail high very likely.
     if (interiorNonPv && depth >= PROBCUT_MIN_DEPTH && std::abs(beta) < POS_INF - 1000) {
         const int32_t probcutBound = beta + PROBCUT_MARGIN;
+        const Board::HashPrefetch pcPrefetch{
+            tt.rawTableBase(), tt.bucketByteMask(), evalCache.rawBase(), EvalCache::BYTE_MASK
+        };
         for (const Move& mc : MoveGenerator::generateTacticalMoves(b)) {
             // A singular probe asks about the OTHER moves: the excluded one must not answer.
             if (hasExcludedMove && mc.sameFromTo(excludedMove)) continue;
             // Raw SEE on purpose: PROBCUT_MARGIN was tuned as a material threshold here.
             if (Sorter::staticExchangeEvaluation(b, mc) < PROBCUT_MARGIN) continue;
             Board::MoveState pcState;
-            b.doMove(mc, pcState, {tt.rawTableBase(), tt.bucketByteMask(), evalCache.rawBase(), EvalCache::BYTE_MASK});
+            b.doMove(mc, pcState, pcPrefetch);
             int32_t pcScore = probcutBound;
             if (depth > 4) pcScore = -quiescenceSearch(b, runtime, -probcutBound, -probcutBound + 1, ply + 1);
             if (pcScore >= probcutBound) {
@@ -753,12 +759,12 @@ int32_t searchPosition(Board& b, SearchRuntime& runtime, int depth, int32_t alph
         contHistEntry = &runtime.contHist[side ^ 1][prevPiece - 1][previousMove->to][0][0];
     }
 
-    MoveList moves = MoveGenerator::generateLegalMoves(b, checkers);
-    if (moves.is_empty()) return inCheck ? (-MATE_VALUE + ply) : 0; // mated or stalemated
+    MovePicker movePicker;
+    MoveGenerator::generateLegalMoves(b, checkers, movePicker.moves);
+    if (movePicker.moves.is_empty()) return inCheck ? (-MATE_VALUE + ply) : 0; // mated or stalemated
 
     bool hasHashMove = false;
-    MovePicker movePicker = Sorter::sortLegalMoves(std::move(moves), ply, b, runtime, tte.move,
-                                                   previousMove, &hasHashMove, contHistEntry);
+    Sorter::scoreLegalMoves(movePicker, ply, b, runtime, tte.move, previousMove, &hasHashMove, contHistEntry);
     // Without a verified hash move: no singular extension, and IIR reduces:
     // one ply of depth at PV and cut nodes in IIR_MODE 1, else one more LMR ply.
     const bool iirNode = !hasHashMove && depth >= 6 && ply > 0;
@@ -845,14 +851,17 @@ int32_t quiescenceSearch(Board& b, SearchRuntime& runtime, int32_t alpha, int32_
                                     : MoveGenerator::generateQSearchTacticalMoves(b, best, alpha, ply);
     if (!movePicker.hasNext()) return inCheck ? (-MATE_VALUE + ply) : best; // mated, or the stand pat
 
+    const Board::HashPrefetch qsPrefetch{
+        tt.rawTableBase(), tt.bucketByteMask(), evalCache.rawBase(), EvalCache::BYTE_MASK
+    };
     while (movePicker.hasNext()) {
-        const Move m = movePicker.nextMove();
+        const Move m = movePicker.nextMove<false>();
         if (runtime.shouldAbort()) {
             runtime.markInterrupted();
             return evaluate(b);
         }
         Board::MoveState state;
-        b.doMove(m, state, {tt.rawTableBase(), tt.bucketByteMask(), evalCache.rawBase(), EvalCache::BYTE_MASK});
+        b.doMove(m, state, qsPrefetch);
         const int32_t score = -quiescenceSearch(b, runtime, -beta, -alpha, ply + 1);
         b.undoMove(m, state);
         best = std::max(best, score);
@@ -919,6 +928,7 @@ IterativeSearchResult runIterativeDeepening(Board& rootBoard, SearchRuntime& run
                                             int startDepth, int targetDepth) noexcept {
     IterativeSearchResult result;
     if constexpr (kSearchStats) gSearchStats = SearchStats{};
+    rootBoard.setWeightPrefetch(Board::onEfficiencyCore());
     const int firstDepth = std::max(1, startDepth);
     const int maxDepth = std::max(firstDepth, targetDepth);
 

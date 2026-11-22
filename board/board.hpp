@@ -167,9 +167,10 @@ public:
 
     // --- Move execution ---
     void doMove(const Move& m, MoveState& st) noexcept;
-    void doMove(const Move& m, MoveState& st, HashPrefetch tt) noexcept;
+    void doMove(const Move& m, MoveState& st, const HashPrefetch& tt) noexcept;
     void undoMove(const Move& m, const MoveState& st) noexcept;
     void doNullMove(MoveState& st) noexcept;
+    void doNullMove(MoveState& st, const HashPrefetch& tt) noexcept;
     void undoNullMove(const MoveState& st) noexcept;
     bool move(Move move) noexcept;
 
@@ -217,9 +218,16 @@ public:
     // nearest computed ancestor or the Finny table. Must be called with the
     // Board in a consistent state (NNUE::evaluate and the selftest do); const
     // because the accumulator is a cache of board-derived state.
-    void               ensureNnueAccumulatorClean() const noexcept;
+    inline void        ensureNnueAccumulatorClean() const noexcept {
+        if (NNUE::activeNetwork != nullptr && frame(accTop).dirty[0]) ensureNnueAccumulatorCleanSlow();
+    }
     // The current position's accumulator, valid after ensureNnueAccumulatorClean.
     const NNUE::Accumulator& accumulator() const noexcept { return frame(accTop); }
+    // Whether the thread runs on an efficiency core of a hybrid CPU, where the
+    // accumulator kernels prefetch their weight rows (a performance core's
+    // own prefetchers do better without).
+    static bool onEfficiencyCore() noexcept;
+    void setWeightPrefetch(bool on) noexcept { weightPrefetch = on; }
     // The squares `piece` on sq attacks with `occ` as the blockers.
     static uint64_t attacksFrom(uint8_t piece, uint8_t sq, uint64_t occ) noexcept {
         switch (piece & MASK_PIECE_TYPE) {
@@ -246,14 +254,14 @@ public:
 
 private:
     NNUE::Accumulator& frame(int i) const noexcept { return accFrames[static_cast<size_t>(i & (NNUE::ACC_FRAMES - 1))]; }
-    inline void pushAccFrame() noexcept;
-    inline void recordAcc(NNUE::AccDelta delta) noexcept;
+    inline NNUE::Accumulator& pushAccFrame() noexcept;
+    static inline void recordAcc(NNUE::Accumulator& f, NNUE::AccDelta delta) noexcept;
     // Logs the threats that `piece` on sq takes part in as appearing (Add) or
     // vanishing, with the board as it stands and the piece on sq.
-    template<bool Add> void recordThreats(uint8_t piece, uint8_t sq) noexcept;
+    template<bool Add> void recordThreats(NNUE::Accumulator& f, uint8_t piece, uint8_t sq) noexcept;
     // The same for oldPiece on sq becoming newPiece, with the board after the
     // move: sq stays occupied, so no line opens.
-    void recordReplacedThreats(uint8_t oldPiece, uint8_t newPiece, uint8_t sq) noexcept;
+    void recordReplacedThreats(NNUE::Accumulator& f, uint8_t oldPiece, uint8_t newPiece, uint8_t sq) noexcept;
     template<bool Add, bool Checked>
     inline void emitThreatDeltas(NNUE::Accumulator& f, uint8_t startN, uint8_t piece, uint8_t sq,
                                  uint64_t victims, uint64_t attackers, uint64_t sliders,
@@ -265,23 +273,24 @@ private:
                                          uint64_t newAttackers) const noexcept;
     // row = src + perspective p's threat values of the current position.
     void computeThreats(int16_t* row, const int16_t* src, int p, int flip) const noexcept;
+    void ensureNnueAccumulatorCleanSlow() const noexcept;
 
     // --- Private helpers: move execution ---
     // Record: doMove logs the change in the new frame; undoMove only pops it.
     inline void set(uint8_t index, piece_id value) noexcept;
-    template<bool Record> inline void addPieceToBB(uint8_t piece, uint8_t index) noexcept;
-    template<bool Record> inline void removePieceFromBB(uint8_t piece, uint8_t index) noexcept;
-    template<bool Record> inline void relocate(uint8_t piece, uint8_t fromIndex, uint8_t toIndex) noexcept;
+    template<bool Record> inline void addPieceToBB(uint8_t piece, uint8_t index, NNUE::Accumulator* f = nullptr) noexcept;
+    template<bool Record> inline void removePieceFromBB(uint8_t piece, uint8_t index, NNUE::Accumulator* f = nullptr) noexcept;
+    template<bool Record> inline void relocate(uint8_t piece, uint8_t fromIndex, uint8_t toIndex, NNUE::Accumulator* f = nullptr) noexcept;
     inline void prepareMoveState(MoveState& st, uint8_t destBefore) const noexcept;
     inline void restoreState(const MoveState& st) noexcept;
     inline void passTurn(bool resetHalfMoves) noexcept;
     template<typename F>
     static inline void visitKind(MoveKind kind, F&& f) noexcept;
     template<bool WithPrefetch>
-    inline void doMoveImpl(const Move& m, MoveState& st, HashPrefetch tt) noexcept;
+    inline void doMoveImpl(const Move& m, MoveState& st, const HashPrefetch& tt) noexcept;
     template<MoveKind Kind, bool WithPrefetch>
-    inline void doMoveByKind(MoveState& st, uint8_t moving, uint8_t destBefore, uint8_t fromIndex,
-                             uint8_t toIndex, uint8_t promotionType, uint64_t& key, HashPrefetch tt) noexcept;
+    inline void doMoveByKind(NNUE::Accumulator& f, MoveState& st, uint8_t moving, uint8_t destBefore, uint8_t fromIndex,
+                             uint8_t toIndex, uint8_t promotionType, uint64_t& key, const HashPrefetch& tt) noexcept;
     template<MoveKind Kind>
     inline void undoMoveByKind(const MoveState& st, uint8_t pieceOnTo, uint8_t fromIndex, uint8_t toIndex) noexcept;
 
@@ -333,6 +342,7 @@ private:
     // pays nothing. Garbage until the first refreshNnueAccumulator(); a cache
     // that the const evaluation paths settle. On the heap: half a MiB.
     int accTop   = 0;   // grows with every move, frame() wraps it
+    bool weightPrefetch = false;
     int accFloor = 0;   // oldest frame of this line: a load, a copy or a refresh
     std::unique_ptr<NNUE::Accumulator[]> accFrames{new NNUE::Accumulator[NNUE::ACC_FRAMES]};
 };
