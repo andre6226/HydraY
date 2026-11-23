@@ -59,4 +59,4 @@ ENTRYPOINT ["/hydray/datagen.sh"]
 # in compose.yaml's command:. Compose `command:` and `docker run` arguments
 # replace this CMD; a local run without HF_TOKEN passes its own (no --hf-repo),
 # since the upload is checked before the datagen starts.
-CMD ["--shard=250000", "--seal-on-exit", "--hf-repo=ThomasGhione/hydray", "--delete-after-upload"]
+CMD ["--shard=750000", "--seal-on-exit", "--hf-repo=ThomasGhione/hydray", "--delete-after-upload"]
