@@ -143,6 +143,10 @@ inline Spin LMR_CHECK_LESS{0, "LMR_CHECK_LESS", 0, 3};
 // HINDSIGHT_MARGIN (0 = off).
 inline Spin HINDSIGHT_EXT{0, "HINDSIGHT_EXT", 0, 1};
 inline Spin HINDSIGHT_MARGIN{0, "HINDSIGHT_MARGIN", 0, 2000};
+// Re-search after a reduced fail high: one ply deeper when the score beats the
+// best so far by LMR_DEEPER_MARGIN + 2 * depth, one shallower below LMR_SHALLOWER_MARGIN.
+inline Spin LMR_DEEPER_MARGIN{35, "LMR_DEEPER_MARGIN", 0, 200};
+inline Spin LMR_SHALLOWER_MARGIN{7, "LMR_SHALLOWER_MARGIN", 0, 100};
 inline constexpr int LMR_MAX_DEPTH = 20; // deeper nodes use the last row
 
 // --- History bounds ---
@@ -212,8 +216,16 @@ inline constexpr int MAX_HELPER_THREADS = 63;
 // of bounds (the debug assert in searchPosition guards the one board read).
 inline constexpr int CONT_HIST_PIECE_TYPES   = 6;
 inline constexpr int CONT_HIST_PIECE_STRIDE  = 64;
+inline constexpr int CONT_HIST_ROW_SIZE      = CONT_HIST_PIECE_TYPES * CONT_HIST_PIECE_STRIDE;
+// Extra continuation histories keyed by our own move CONT_X_PLIES[k] plies back.
+inline constexpr int CONT_X_PLIES[] = {2, 4};
+inline constexpr int CONT_X_N = 2;
 inline constexpr int contHistIndex(int pieceType, int toSq) noexcept {
     return (pieceType - 1) * CONT_HIST_PIECE_STRIDE + toSq;
+}
+// Row of a continuation table selected by `side` moving a pieceType to toSq.
+constexpr int16_t contHistRow(int side, int pieceType, int toSq) noexcept {
+    return static_cast<int16_t>((side * CONT_HIST_PIECE_TYPES + pieceType - 1) * CONT_HIST_PIECE_STRIDE + toSq);
 }
 
 // --- Move ordering scores ---
