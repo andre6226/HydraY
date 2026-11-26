@@ -7,8 +7,8 @@
 #                          /host/machine-id (one stable prefix per machine),
 #                          the engine version and the nodes per move: a new
 #                          version or another --nodes, new names
-#   --nodes 8000           the default of ./chess datagen, passed explicitly so
-#                          the name always holds the nodes the search uses
+#   --nodes 16000          the default here (datagen's own is 8000), so the
+#                          name always holds the nodes the search uses
 #   --threads              the CPUs the container may use
 #   --machine, --build     the machine hash (never the host name: the dataset
 #                          may be public) and the image's build
@@ -97,7 +97,7 @@ version=${version#hydray-}
 # Splits the upload flags off and rebuilds the rest as datagen's arguments,
 # noting --out to know where the shards land and --nodes to name them (the
 # last one wins, as in datagen).
-out= repo= subdir= every=600 delete= notb= nodes=8000
+out= repo= subdir= every=600 delete= notb= nodes=16000
 n=$#
 while [ "$n" -gt 0 ]; do
     a=$1; shift; n=$((n - 1))
